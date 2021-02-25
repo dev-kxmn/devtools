@@ -1,0 +1,63 @@
+#!/bin/bash
+
+# Directory config
+WORKDIR=$(realpath "$(dirname "$0")"); # Codebase dir
+
+. $WORKDIR/lib/sh/dataset.sh
+
+# Run Extension Handler
+# Cada extensão deve ter seu próprio invoke configurando ambiente de execução
+
+RunWith_sh() {
+	
+	. $1; shift; # inclui script
+	local funcname=${1//-/_}; shift;
+
+	if [[ "$(type -t "RunMethod_$funcname")" == "function"  ]]; then
+		"RunMethod_$funcname" $@;
+	elif [[ "$(type -t __run_default)" == "function" ]]; then
+		__run_default $funcname $@;
+	elif [[ "$(type -t RunMethod_help)" == "function" ]]; then
+		RunMethod_help | __run_printhelp;
+	else
+		declare -F | grep '^declare -f RunMethod_' | cut -d'_' -f2- | sed 's/_/-/g'
+	fi
+}
+
+RunWith_php() {
+	export PHPLIB=$WORKDIR/lib/php
+	export PHPINC=".:$PHPLIB:/usr/share/php";
+	php -d include_path="$PHPINC" -c "$PHPLIB/php.ini" $@
+}
+
+__run_help() {
+	grep -H -m 1 '^#\s*RUNTIP\s*:' -R "${WORKDIR}"/lib/run/* | \
+		sed -E 's/^[^:]+\/([^:.]+)[^:]*:[^:]+:(.*)/\1,\2/g' | __run_printhelp
+	exit
+}
+
+__run_printhelp() {
+	echo -e "\nOpções: ";
+	grep -v '^\s*$' | while read l; do
+		printf "%-15s %s\n" "  ${l/,*/} " "${l/*,/}"
+	done
+	echo;
+}
+
+# EXECUÇÃO
+
+cmd=$1; shift;
+if [[ "$TERM" != "" ]] ; then export VERBOSE=1; fi
+if [[ "$cmd" == "" ]] || [[ "$cmd" == "--list" ]]; then __run_help; fi
+
+# Verifica se existe arquivo com qualquer extensão
+# correspondente ao nome do comando ( passado com $1 )
+target=$(ls -1 "$WORKDIR"/lib/run/"$cmd"[.]* 2>/dev/null)
+if [[ "$target" != "" ]]; then
+	# Chama o invoke correspondente para a extensão,
+	# P.ex `./run docker` encontra `docker.sh`
+	# então chama `_invoke_sh docker.sh`
+	RunWith_"${target##*.}" "$target" $@
+else
+	echo "opção inexistente"
+fi
